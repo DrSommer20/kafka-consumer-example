@@ -1,15 +1,19 @@
 package de.sommer.kafkaconsumer.discordBot;
 
-import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.User;
-import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
-import net.dv8tion.jda.api.hooks.ListenerAdapter;
-import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
-
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+
+import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 public class MessageListener extends ListenerAdapter {
     private static final String COMMAND_CHANNEL = "kafka-befehle";
@@ -17,6 +21,12 @@ public class MessageListener extends ListenerAdapter {
 
     private Map<String, Set<User>> consumerSubscriptions = new HashMap<>();
     private Map<String, Set<User>> producerSubscriptions = new HashMap<>();
+    private KafkaBot kafkaBot;
+
+    public MessageListener(KafkaBot kafkaBot) {
+        this.kafkaBot = kafkaBot;
+        startKafkaConsumer();
+    }
 
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
@@ -31,7 +41,7 @@ public class MessageListener extends ListenerAdapter {
                     .map(Map.Entry::getKey)
                     .findFirst()
                     .orElse(null);
-            notifyConsumers(topic, content);
+            kafkaBot.getKafka().sendMessageToKafka(topic, content);
         }
     }
 
@@ -50,11 +60,12 @@ public class MessageListener extends ListenerAdapter {
 
             if (type.equals("consumer")) {
                 consumerSubscriptions.computeIfAbsent(topic, k -> new HashSet<>()).add(user);
-                event.getHook().sendMessage("User " + user + " has subscribed to topic " + topic).queue();
+                kafkaBot.getKafka().subscribeToTopic(topic);
+                event.getHook().sendMessage("User " + user.getEffectiveName() + " has subscribed to topic " + topic).queue();
             } else if (type.equals("producer")) {
                 producerSubscriptions.computeIfAbsent(topic, k -> new HashSet<>()).add(user);
-                System.out.println("User " + user + " added to topic:  " + topic);
-                event.getHook().sendMessage("User " + user + " registered as producer for topic:" + topic).queue();
+                System.out.println("User " + user.getName() + " added to topic:  " + topic);
+                event.getHook().sendMessage("User " + user.getEffectiveName() + " registered as producer for topic:" + topic).queue();
             }
         }
 
@@ -65,14 +76,26 @@ public class MessageListener extends ListenerAdapter {
 
             if (consumerSubscriptions.containsKey(topic)) {
                 if(consumerSubscriptions.get(topic).remove(user))
-                    event.getHook().sendMessage(user + " has unsubscribed as a consumer from topic " + topic).queue();
+                    event.getHook().sendMessage(user.getEffectiveName() + " has unsubscribed as a consumer from topic " + topic).queue();
             }
 
             if (producerSubscriptions.containsKey(topic)) {
                 if(producerSubscriptions.get(topic).remove(user))
-                    event.getHook().sendMessage(user + " has unsubscribed as a producer from topic " + topic).queue();
+                    event.getHook().sendMessage(user.getEffectiveName() + " has unsubscribed as a producer from topic " + topic).queue();
             }
         }
+    }
+
+    private void startKafkaConsumer() {
+        new Thread(() -> {
+            KafkaConsumer<String, String> consumer = kafkaBot.getKafka().getConsumer();
+            while (true) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
+                records.forEach(record -> {
+                    notifyConsumers(record.topic(), record.value());
+                });
+            }
+        }).start();
     }
 
     private void notifyConsumers(String topic, String message) {
@@ -83,5 +106,3 @@ public class MessageListener extends ListenerAdapter {
         }
     }
 }
-
-
