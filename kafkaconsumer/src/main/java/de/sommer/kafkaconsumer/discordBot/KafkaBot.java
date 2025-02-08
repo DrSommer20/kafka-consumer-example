@@ -11,8 +11,7 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 
 public class KafkaBot {
     private JDA api;
-    private Dotenv dotenv = Dotenv.load();
-    private final String BOT_TOKEN = dotenv.get("BOT_TOKEN");
+    private final String BOT_TOKEN = System.getenv("BOT_TOKEN");
     private Kafka kafka;
 
     public KafkaBot() throws Exception {
@@ -27,14 +26,14 @@ public class KafkaBot {
 
 
     private void addKafkaCommand(){
-        api.updateCommands().addCommands(Commands.slash("kafka", "Kafka Endpunkt erstellen")
-            .addOptions(
-                new OptionData(OptionType.STRING, "type", "Typ des Endpunktes", true)
-                    .addChoice("Konsument", "consumer")
-                    .addChoice("Produzent", "producer"))
-            .addOption(OptionType.STRING, "topic", "Topic des Endpunktes", true),
-            Commands.slash("unsubscribe", "Kafka Endpunkt entfernen")
-            .addOption(OptionType.STRING, "topic", "Topic des Endpunktes", true)
+        OptionData topicOption = new OptionData(OptionType.STRING, "topic", "Topic des Endpunktes", true)
+            .addChoice("Home Assistant", "home_assistant_1")
+            .addChoice("Discord Bot", "discordBot");
+        api.updateCommands().addCommands(
+            Commands.slash("consumer", "Kafka Konsument hinzufügen")
+            .addOptions(topicOption),
+            Commands.slash("unsubscribe", "Kafka Konsument entfernen")
+            .addOptions(topicOption)
         ).queue();
     }
 

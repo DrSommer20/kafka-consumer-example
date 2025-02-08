@@ -1,16 +1,12 @@
 package de.sommer.kafkaconsumer.connection;
 
-import java.time.Duration;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Properties;
 import java.util.Set;
 
-import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -22,49 +18,30 @@ public class Kafka {
     private Set<String> subscribedTopics = new HashSet<>();
 
     public Kafka() {
-        // subscribedTopics.add("testtopic");
-        // createKafkaConsumer();
-        // createKafkaProducer();
+        createKafkaConsumer();
+        createKafkaProducer();
+        subscribeToTopic("discordBot");
+        subscribeToTopic("home_assistant_1");
     }
 
     private void createKafkaConsumer() {
         Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "192.168.2.121:9092");
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "DiscordBot");
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        // receive messages that were sent before the consumer started
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        // create the consumer using props.
-        try (final Consumer<Long, String> consumer = new KafkaConsumer<>(props)) {
-            // subscribe to the topic.
-            final String topic = "testtopic";
-            consumer.subscribe(Arrays.asList(topic));
-            // poll messages from the topic and print them to the console
-            consumer
-            .poll(Duration.ofMinutes(1))
-            .forEach(System.out::println);
-        }
 
+        consumer = new KafkaConsumer<>(props);
     }
 
     private void createKafkaProducer() {
         Properties props = new Properties();
-        props.put("bootstrap.servers", "localhost:9092");
-        props.put("acks", "all");
-        props.put("retries", 0);
-        props.put("batch.size", 16384);
-        props.put("linger.ms", 1);
-        props.put("buffer.memory", 33554432);
-        props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-        props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "192.168.2.121:9092");
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
-        Producer<String, String> producer = new KafkaProducer<>(props);
-        for (int i = 0; i < 100; i++)
-            producer.send(new ProducerRecord<String, String>("testtopic", Integer.toString(i), Integer.toString(i)));
-
-        producer.close();
-
+        producer = new KafkaProducer<>(props);
     }
 
     public KafkaConsumer<String, String> getConsumer() {
@@ -82,13 +59,5 @@ public class Kafka {
 
     public void sendMessageToKafka(String topic, String message) {
         producer.send(new ProducerRecord<>(topic, message));
-    }
-
-    public static void main(String[] args) {
-        Kafka kafka = new Kafka();
-        kafka.createKafkaProducer();
-        kafka.createKafkaConsumer();
-       
-
     }
 }

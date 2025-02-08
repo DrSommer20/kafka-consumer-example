@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 
@@ -18,9 +19,9 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 public class MessageListener extends ListenerAdapter {
     private static final String COMMAND_CHANNEL = "kafka-befehle";
     private static final String PRODUCER_CHANNEL = "kafka-produzenten";
+    private static final Set<String> AVAILABLE_TOPICS = Set.of("home_assistant_1", "discordBot");
 
     private Map<String, Set<User>> consumerSubscriptions = new HashMap<>();
-    private Map<String, Set<User>> producerSubscriptions = new HashMap<>();
     private KafkaBot kafkaBot;
 
     public MessageListener(KafkaBot kafkaBot) {
@@ -36,12 +37,7 @@ public class MessageListener extends ListenerAdapter {
         System.out.println(content);
 
         if (event.getChannel().getName().equals(PRODUCER_CHANNEL)) {
-            String topic = producerSubscriptions.entrySet().stream()
-                    .filter(e -> e.getValue().contains(event.getAuthor()))
-                    .map(Map.Entry::getKey)
-                    .findFirst()
-                    .orElse(null);
-            kafkaBot.getKafka().sendMessageToKafka(topic, content);
+            kafkaBot.getKafka().sendMessageToKafka("discordBot", content);
         }
     }
 
@@ -52,21 +48,18 @@ public class MessageListener extends ListenerAdapter {
             return;
         }
 
-        if (event.getName().equals("kafka")) {
+        if (event.getName().equals("consumer")) {
             event.deferReply().queue();
-            String type = event.getOption("type").getAsString();
             String topic = event.getOption("topic").getAsString();
             User user = event.getUser();
 
-            if (type.equals("consumer")) {
-                consumerSubscriptions.computeIfAbsent(topic, k -> new HashSet<>()).add(user);
-                kafkaBot.getKafka().subscribeToTopic(topic);
-                event.getHook().sendMessage("User " + user.getEffectiveName() + " has subscribed to topic " + topic).queue();
-            } else if (type.equals("producer")) {
-                producerSubscriptions.computeIfAbsent(topic, k -> new HashSet<>()).add(user);
-                System.out.println("User " + user.getName() + " added to topic:  " + topic);
-                event.getHook().sendMessage("User " + user.getEffectiveName() + " registered as producer for topic:" + topic).queue();
+            if (!AVAILABLE_TOPICS.contains(topic)) {
+                event.getHook().sendMessage("Invalid topic. Please choose either 'home_assistant_1' or 'discordBot'.").queue();
+                return;
             }
+            consumerSubscriptions.computeIfAbsent(topic, k -> new HashSet<>()).add(user);
+            event.getHook().sendMessage("User " + user.getEffectiveName() + " has subscribed to topic " + topic).queue();
+
         }
 
         if (event.getName().equals("unsubscribe")) {
@@ -75,13 +68,8 @@ public class MessageListener extends ListenerAdapter {
             User user = event.getUser();
 
             if (consumerSubscriptions.containsKey(topic)) {
-                if(consumerSubscriptions.get(topic).remove(user))
+                if (consumerSubscriptions.get(topic).remove(user))
                     event.getHook().sendMessage(user.getEffectiveName() + " has unsubscribed as a consumer from topic " + topic).queue();
-            }
-
-            if (producerSubscriptions.containsKey(topic)) {
-                if(producerSubscriptions.get(topic).remove(user))
-                    event.getHook().sendMessage(user.getEffectiveName() + " has unsubscribed as a producer from topic " + topic).queue();
             }
         }
     }
@@ -92,17 +80,36 @@ public class MessageListener extends ListenerAdapter {
             while (true) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
                 records.forEach(record -> {
-                    notifyConsumers(record.topic(), record.value());
+                    notifyConsumers(record);
                 });
             }
         }).start();
     }
 
-    private void notifyConsumers(String topic, String message) {
-        if (consumerSubscriptions.containsKey(topic)) {
-            for (User user : consumerSubscriptions.get(topic)) {
-                user.openPrivateChannel().queue(channel -> channel.sendMessage("New message in topic " + topic + ": " + message).queue());
+    private void notifyConsumers(ConsumerRecord<String, String> record) {
+        if (consumerSubscriptions.containsKey(record.topic())) {
+            for (User user : consumerSubscriptions.get(record.topic())) {
+                user.openPrivateChannel().queue(channel -> {
+                    String formattedMessage = formatMessage(record);
+                    channel.sendMessage(formattedMessage).queue();
+                });
             }
         }
+    }
+        
+    private String formatMessage(ConsumerRecord<String, String> record) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("**New message in topic** `").append(record.topic()).append("`:\n");
+        sb.append("```json\n");
+        sb.append("{\n");
+        sb.append("  \"Offset\": ").append(record.offset()).append(",\n");
+        sb.append("  \"Key\": \"").append(record.key()).append("\",\n");
+        sb.append("  \"Value\": ").append(record.value()).append(",\n");
+        sb.append("  \"Partition\": ").append(record.partition()).append(",\n");
+        sb.append("  \"Timestamp\": ").append(record.timestamp()).append(",\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        sb.append("```\n");
+        return sb.toString();
     }
 }
